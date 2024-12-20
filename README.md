@@ -2,7 +2,7 @@
 
 ## 시작하기
 
-###요약
+
 1. conda activate <your-conda-env> 로 가상환경 들어가기 `cmd`환경인지 반드시 확인할 것.
 2. root 폴더에 `.env` 파일 생성
 ```
