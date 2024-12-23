@@ -78,7 +78,7 @@ class EmergencyService:
 
         return pred, probabilities
 
-    def _get_distance(self, start_lat: float, start_lng: float, dest_lat: float, dest_lng: float, c_id: str, c_key: str) -> float:
+    def _get_distance(self, start_lat: float, start_lng: float, dest_lat: float, dest_lng: float, c_id: str, c_key: str) -> Tuple[float, float]:
         url = "https://naveropenapi.apigw.ntruss.com/map-direction/v1/driving"
         headers = {
             "X-NCP-APIGW-API-KEY-ID": c_id,
@@ -93,9 +93,10 @@ class EmergencyService:
         response = requests.get(url, headers=headers, params=params)
         if response.status_code == 200:
             result = response.json()
-            return result['route']['trafast'][0]['summary']['distance'] / 1000
+            summary = result['route']['trafast'][0]['summary']
+            return summary['distance'] / 1000, summary['duration'] / (1000 * 60)  # 거리(km), 소요시간(분)
         
-        return None
+        return None, None
 
     def _recommend_hospital(self, start_lat: float, start_lng: float, c_id: str, c_key: str):
         temp = self.emergency_df.loc[
@@ -103,48 +104,53 @@ class EmergencyService:
             self.emergency_df['경도'].between(start_lng-0.05, start_lng+0.05)
         ].copy()
 
-        temp['거리'] = temp.apply(
-            lambda x: self._get_distance(start_lat, start_lng, x['위도'], x['경도'], c_id, c_key), 
+        # 거리와 소요시간 계산
+        temp[['거리', '소요시간']] = temp.apply(
+            lambda x: pd.Series(
+                self._get_distance(start_lat, start_lng, x['위도'], x['경도'], c_id, c_key)
+            ), 
             axis=1
         )
-        return temp.sort_values(by='거리').head(3)
+        # 10분 이내 도착 가능한 병원만 반환
+        return temp[temp['소요시간'] <= 10].sort_values(by='소요시간')
 
     def _find_nearest_fire_station(self, lat: float, lon: float, c_id: str, c_key: str):
         try:
-
             temp = self.fire_station_df.loc[
                 (self.fire_station_df['X좌표'].between(lat-0.05, lat+0.05)) & 
                 (self.fire_station_df['Y좌표'].between(lon-0.05, lon+0.05))
             ].copy()
+
             if temp.empty:
                 print(f"No fire stations found for coordinates: lat={lat}, lon={lon}")
                 return None
 
-            # 좌표 데이터 타입 확인 및 변환
             temp['X좌표'] = temp['X좌표'].astype(float)
             temp['Y좌표'] = temp['Y좌표'].astype(float)
 
-
-            temp['도로 거리'] = temp.apply(
-                lambda x: self._get_distance(
-                    start_lat=lat,
-                    start_lng=lon,
-                    dest_lat=x['X좌표'],  # X좌표가 위도
-                    dest_lng=x['Y좌표'],  # Y좌표가 경도
-                    c_id=c_id,
-                    c_key=c_key
+            # 거리와 소요시간 계산
+            temp[['도로 거리', '소요시간']] = temp.apply(
+                lambda x: pd.Series(
+                    self._get_distance(
+                        start_lat=lat,
+                        start_lng=lon,
+                        dest_lat=x['X좌표'],
+                        dest_lng=x['Y좌표'],
+                        c_id=c_id,
+                        c_key=c_key
+                    )
                 ),
                 axis=1
             )
 
-
-            temp = temp.dropna(subset=['도로 거리'])
+            temp = temp.dropna(subset=['도로 거리', '소요시간'])
             
             if temp.empty:
                 print("All fire stations were filtered out due to invalid distances")
                 return None
 
-            result = temp.sort_values(by='도로 거리').head(3)
+            # 10분 이내 도착 가능한 소방서만 반환
+            result = temp[temp['소요시간'] <= 10].sort_values(by='소요시간')
             return result
 
         except Exception as e:
