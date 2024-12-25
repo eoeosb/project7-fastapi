@@ -111,8 +111,14 @@ class EmergencyService:
             ), 
             axis=1
         )
-        # 10분 이내 도착 가능한 병원만 반환
-        return temp[temp['소요시간'] <= 10].sort_values(by='소요시간')
+        
+        # 10분 이내 도착 가능한 병원 필터링
+        result = temp[temp['소요시간'] <= 10].sort_values(by='소요시간')
+        
+        # 10분 이내 병원이 없으면 가장 가까운 병원 1개 반환
+        if result.empty:
+            return temp.nsmallest(1, '소요시간')
+        return result
 
     def _find_nearest_fire_station(self, lat: float, lon: float, c_id: str, c_key: str):
         try:
@@ -149,8 +155,12 @@ class EmergencyService:
                 print("All fire stations were filtered out due to invalid distances")
                 return None
 
-            # 10분 이내 도착 가능한 소방서만 반환
+            # 10분 이내 도착 가능한 소방서 필터링
             result = temp[temp['소요시간'] <= 10].sort_values(by='소요시간')
+            
+            # 10분 이내 소방서가 없으면 가장 가까운 소방서 1개 반환
+            if result.empty:
+                return temp.nsmallest(1, '소요시간')
             return result
 
         except Exception as e:
